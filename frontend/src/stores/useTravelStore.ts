@@ -19,6 +19,29 @@ export type PathResult = {
   segmentDistanceMeters: number[];
 };
 
+// 当前系统的路径规划策略（后端按边权=地理距离计算最短路）。
+// 收藏记录会保存该字段，便于未来扩展多策略时区分数据来源。
+export const ROUTE_STRATEGY = {
+  value: "distance",
+  label: "最短距离",
+} as const;
+
+export type FavoriteRoute = {
+  id: string;
+  name: string;
+  startId: string;
+  startName: string;
+  endId: string;
+  endName: string;
+  strategy: string;
+  strategyLabel: string;
+  totalDistanceMeters: number;
+  pathNodeIds: string[];
+  pathNodes: TravelNode[];
+  segmentDistanceMeters: number[];
+  createdAt: number;
+};
+
 type State = {
   nodes: TravelNode[];
   nodesLoading: boolean;
@@ -37,6 +60,7 @@ type Actions = {
   clear: () => void;
   setSelectedNodeId: (id?: string) => void;
   fetchRoute: () => Promise<void>;
+  applyFavorite: (fav: FavoriteRoute) => void;
 };
 
 const apiBase = import.meta.env.VITE_API_BASE || "/api";
@@ -83,6 +107,23 @@ export const useTravelStore = create<State & Actions>((set, get) => ({
   },
 
   clear: () => set({ startId: undefined, endId: undefined, route: undefined, selectedNodeId: undefined }),
+
+  // 加载收藏路线到当前规划状态。
+  // 注意：仅修改本地 UI 状态（startId/endId/route），不会改动 nodes 公共图数据。
+  applyFavorite: (fav) =>
+    set({
+      startId: fav.startId,
+      endId: fav.endId,
+      route: {
+        startId: fav.startId,
+        endId: fav.endId,
+        totalDistanceMeters: fav.totalDistanceMeters,
+        pathNodeIds: [...fav.pathNodeIds],
+        pathNodes: fav.pathNodes.map((n) => ({ ...n })),
+        segmentDistanceMeters: [...fav.segmentDistanceMeters],
+      },
+      selectedNodeId: undefined,
+    }),
 
   fetchRoute: async () => {
     const { startId, endId } = get();
