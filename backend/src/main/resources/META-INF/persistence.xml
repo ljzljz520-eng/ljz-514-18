@@ -3,6 +3,7 @@
     <persistence-unit name="cq-travel">
         <provider>org.hibernate.jpa.HibernatePersistenceProvider</provider>
         <class>com.cqu.model.Node</class>
+        <class>com.cqu.model.FavoriteRoute</class>
     </persistence-unit>
 </persistence>
 

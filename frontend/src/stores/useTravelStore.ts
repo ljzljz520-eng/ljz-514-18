@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import { notification } from "antd";
+import { DEFAULT_STRATEGY, type Strategy } from "@/lib/strategy";
 
 export type TravelNode = {
   id: string;
@@ -17,6 +18,14 @@ export type PathResult = {
   pathNodeIds: string[];
   pathNodes: TravelNode[];
   segmentDistanceMeters: number[];
+  strategy?: string;
+};
+
+export type RouteSnapshot = {
+  startId: string;
+  endId: string;
+  strategy: Strategy;
+  route: PathResult;
 };
 
 type State = {
@@ -24,6 +33,7 @@ type State = {
   nodesLoading: boolean;
   startId?: string;
   endId?: string;
+  strategy: Strategy;
   route?: PathResult;
   routeLoading: boolean;
   selectedNodeId?: string;
@@ -33,10 +43,13 @@ type Actions = {
   loadNodes: () => Promise<void>;
   setStartId: (id?: string) => void;
   setEndId: (id?: string) => void;
+  setStrategy: (strategy: Strategy) => void;
   swap: () => void;
   clear: () => void;
   setSelectedNodeId: (id?: string) => void;
   fetchRoute: () => Promise<void>;
+  /** 将收藏的路线快照恢复到规划器（起点/终点/策略/路线节点） */
+  applyRouteSnapshot: (snapshot: RouteSnapshot) => void;
 };
 
 const apiBase = import.meta.env.VITE_API_BASE || "/api";
@@ -45,6 +58,7 @@ export const useTravelStore = create<State & Actions>((set, get) => ({
   nodes: [],
   nodesLoading: false,
   routeLoading: false,
+  strategy: DEFAULT_STRATEGY,
 
   loadNodes: async () => {
     if (get().nodesLoading) return;
@@ -54,14 +68,15 @@ export const useTravelStore = create<State & Actions>((set, get) => ({
       if (!res.ok) throw new Error("nodes_fetch_failed");
       const data = await res.json();
       if (!Array.isArray(data)) throw new Error("nodes_payload_invalid");
-      const nodes = (data as any[])
+      const nodes = (data as unknown[])
         .map((raw) => {
-          const id = String(raw?.id ?? "").trim();
-          const name = String(raw?.name ?? "").trim();
-          const lat = Number(raw?.lat);
-          const lng = Number(raw?.lng);
-          const type = typeof raw?.type === "string" ? raw.type : undefined;
-          const desc = typeof raw?.desc === "string" ? raw.desc : undefined;
+          const r = (raw ?? {}) as Record<string, unknown>;
+          const id = String(r.id ?? "").trim();
+          const name = String(r.name ?? "").trim();
+          const lat = Number(r.lat);
+          const lng = Number(r.lng);
+          const type = typeof r.type === "string" ? r.type : undefined;
+          const desc = typeof r.desc === "string" ? r.desc : undefined;
           return { id, name, lat, lng, type, desc } satisfies TravelNode;
         })
         .filter((n) => n.id && Number.isFinite(n.lat) && Number.isFinite(n.lng));
@@ -75,7 +90,17 @@ export const useTravelStore = create<State & Actions>((set, get) => ({
 
   setStartId: (id) => set({ startId: id, route: undefined }),
   setEndId: (id) => set({ endId: id, route: undefined }),
+  setStrategy: (strategy) => set({ strategy, route: undefined }),
   setSelectedNodeId: (id) => set({ selectedNodeId: id }),
+
+  applyRouteSnapshot: (snapshot) =>
+    set({
+      startId: snapshot.startId,
+      endId: snapshot.endId,
+      strategy: snapshot.strategy,
+      route: snapshot.route,
+      selectedNodeId: undefined,
+    }),
 
   swap: () => {
     const { startId, endId } = get();
@@ -85,21 +110,23 @@ export const useTravelStore = create<State & Actions>((set, get) => ({
   clear: () => set({ startId: undefined, endId: undefined, route: undefined, selectedNodeId: undefined }),
 
   fetchRoute: async () => {
-    const { startId, endId } = get();
+    const { startId, endId, strategy } = get();
     if (!startId || !endId) {
       notification.warning({ message: "请选择起点与终点" });
       return;
     }
     set({ routeLoading: true });
     try {
-      const qs = new URLSearchParams({ from: startId, to: endId });
+      const qs = new URLSearchParams({ from: startId, to: endId, strategy });
       const res = await fetch(`${apiBase}/path?${qs.toString()}`);
       const data = await res.json();
       if (!res.ok) {
         notification.error({ message: "规划失败", description: data?.error || "后端错误" });
         return;
       }
-      set({ route: data as PathResult });
+      const route = data as PathResult;
+      if (!route.strategy) route.strategy = strategy;
+      set({ route });
     } catch {
       notification.error({ message: "规划失败", description: "网络异常或后端不可用" });
     } finally {

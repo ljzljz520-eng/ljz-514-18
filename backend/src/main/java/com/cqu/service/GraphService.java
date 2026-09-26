@@ -14,6 +14,11 @@ import java.util.PriorityQueue;
 import java.util.Set;
 
 public class GraphService {
+    /** 规划策略：按地理距离最短 */
+    public static final String STRATEGY_DISTANCE = "distance";
+    /** 规划策略：经停节点最少 */
+    public static final String STRATEGY_STOPS = "stops";
+
     private final Map<String, Node> nodes;
     private final Map<String, List<Neighbor>> adjacency;
 
@@ -36,13 +41,25 @@ public class GraphService {
     }
 
     public PathResult shortestPath(String fromId, String toId) {
+        return shortestPath(fromId, toId, STRATEGY_DISTANCE);
+    }
+
+    /**
+     * 按指定策略规划路径。
+     *
+     * @param strategy {@link #STRATEGY_DISTANCE}（最短距离，默认）或 {@link #STRATEGY_STOPS}（最少经停）
+     */
+    public PathResult shortestPath(String fromId, String toId, String strategy) {
+        String normalized = normalizeStrategy(strategy);
+        boolean fewestStops = STRATEGY_STOPS.equals(normalized);
+
         if (fromId == null || toId == null || !nodes.containsKey(fromId) || !nodes.containsKey(toId)) {
             throw new IllegalArgumentException("起点或终点不存在");
         }
         if (fromId.equals(toId)) {
             List<String> ids = List.of(fromId);
             List<Node> ns = List.of(nodes.get(fromId));
-            return new PathResult(fromId, toId, 0.0, ids, ns, List.of());
+            return new PathResult(fromId, toId, 0.0, ids, ns, List.of(), normalized);
         }
 
         Map<String, Double> dist = new HashMap<>();
@@ -65,7 +82,9 @@ public class GraphService {
             }
             List<Neighbor> neighbors = adjacency.getOrDefault(cur.id, List.of());
             for (Neighbor nb : neighbors) {
-                double nd = cur.distance + nb.weightMeters;
+                // 最少经停策略下每条边权重视为 1，否则使用地理距离（米）
+                double step = fewestStops ? 1.0 : nb.weightMeters;
+                double nd = cur.distance + step;
                 if (nd < dist.get(nb.toId)) {
                     dist.put(nb.toId, nd);
                     prev.put(nb.toId, cur.id);
@@ -92,14 +111,27 @@ public class GraphService {
 
         List<Node> pathNodes = pathIds.stream().map(nodes::get).toList();
         List<Double> segments = new ArrayList<>();
-        double total = dist.getOrDefault(toId, Double.POSITIVE_INFINITY);
         for (int i = 1; i < pathNodes.size(); i++) {
             Node a = pathNodes.get(i - 1);
             Node b = pathNodes.get(i);
             segments.add(weightBetween(a.getId(), b.getId(), a.getLat(), a.getLng(), b.getLat(), b.getLng()));
         }
+        // 无论使用哪种策略，对外展示的总距离始终是真实的地理距离（米）
+        double total = segments.stream().mapToDouble(Double::doubleValue).sum();
 
-        return new PathResult(fromId, toId, total, pathIds, pathNodes, segments);
+        return new PathResult(fromId, toId, total, pathIds, pathNodes, segments, normalized);
+    }
+
+    /** 归一化策略参数：空值回退为默认策略，非法值抛出中文异常。 */
+    public static String normalizeStrategy(String strategy) {
+        if (strategy == null || strategy.isBlank()) {
+            return STRATEGY_DISTANCE;
+        }
+        String s = strategy.trim().toLowerCase();
+        if (STRATEGY_DISTANCE.equals(s) || STRATEGY_STOPS.equals(s)) {
+            return s;
+        }
+        throw new IllegalArgumentException("不支持的规划策略：" + strategy);
     }
 
     private double weightBetween(String fromId, String toId, double fromLat, double fromLng, double toLat, double toLng) {

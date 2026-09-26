@@ -3,15 +3,18 @@ import { useEffect } from "react";
 import ControlPanel from "@/components/ControlPanel";
 import MapContainer from "@/components/MapContainer";
 import { useTravelStore } from "@/stores/useTravelStore";
+import { useFavoriteStore } from "@/stores/useFavoriteStore";
 
 const { Sider, Content } = Layout;
 
 export default function Home() {
   const loadNodes = useTravelStore((s) => s.loadNodes);
+  const loadFavorites = useFavoriteStore((s) => s.loadFavorites);
 
   useEffect(() => {
     void loadNodes();
-  }, [loadNodes]);
+    void loadFavorites();
+  }, [loadNodes, loadFavorites]);
 
   return (
     <Layout className="h-screen w-screen bg-slate-50">
